@@ -25,7 +25,7 @@ func NegotiateAuthentication (conn net.Conn) (result int, error string) {
 	return
 }
 
-func AcceptRequest(conn net.Conn) (addr string, err error) {
+func AcceptRequest(conn net.Conn) (addr string, err error, RequestType int) {
 	var buf [512] byte
 	conn.Read(buf[:])
 	if (int(buf[0]) != 0x05) {
@@ -34,13 +34,15 @@ func AcceptRequest(conn net.Conn) (addr string, err error) {
 	}
 	switch buf[1] {
 		case 0x01: {//CONNECT
-			
+			RequestType = 1
 		}
 		case 0x02: {//BIND
+			RequestType = 2
 			err = errors.New("Proxy method not implemented")
 			return
 		}
 		case 0x03: {//UDP ASSOCIATE
+			RequestType = 3
 			err = errors.New("Proxy method not implemented")
 			return
 		}
@@ -84,20 +86,30 @@ func AnswerRequest(conn net.Conn) {
 	conn.Write(buf[:10])
 }
 
-func ConnectWithTarget(addr string) (conn net.Conn, err error){
+func ConnectWithTargetTCP(addr string) (conn net.Conn, err error) {
 	conn, err = net.DialTimeout("tcp", addr, 3 * time.Second)
 	return
 }
 
-func handleconn(conn net.Conn) {
-	var buf [65536]byte
+func GetUDPRequestAddr(conn net.Conn) (addr string, err error) {
+
+	return
+}
+
+func ConnectWithTargetUDP(conn net.Conn) (tarconn net.Conn, err error) {
+	conn, err = net.DialTimeout("udp", addr, 3 * time.Second)
+	return
+}
+
+func HandleConn(conn net.Conn) {
+	var buf [4096]byte
 	NegotiateAuthentication(conn)
 	//协商认证
 	buf[0] = 0x05
 	buf[1] = 0x00
 	conn.Write(buf[:2])
 	//完成协商认证
-	tar, err := AcceptRequest(conn)
+	tar, err, RequestType := AcceptRequest(conn)
 	//接受代理请求
 	if (err != nil) {
 		fmt.Println(err.Error())
@@ -105,18 +117,37 @@ func handleconn(conn net.Conn) {
 		return
 	}
 	var tarconn net.Conn
-	tarconn, err = ConnectWithTarget(tar) 
+	if (RequestType == 1) {
+		tarconn, err = ConnectWithTargetTCP(tar) 
+		if (err != nil){
+			fmt.Println(err.Error())
+			conn.Close()
+			return
+		}
+		AnswerRequest(conn)
+		//回复代理请求
+		go io.Copy(tarconn, conn)
+		io.Copy(conn, tarconn)
+	} else if (RequestType == 3) {
+		listener, err := net.Listen("udp", tar)
+		//监听给定的 UDP 端口
+		if (err != nil) {
+			fmt.Println(err.Error())
+			conn.Close()
+			return
+		}
+		AnswerRequest(conn)
+		//回复代理请求
+		var udpconn net.Conn
+		udpconn, err = listener.Accept()
+		tarconn, err = ConnectWithTargetUDP(udpconn)
+		//与目标地址端口连接
+		go io.Copy(tarconn, conn)
+		io.Copy(conn, tarconn)
+		defer udpconn.Close()
+	}
 	defer conn.Close()
 	defer tarconn.Close()
-	if (err != nil){
-		fmt.Println(err.Error())
-		conn.Close()
-		return
-	}
-	AnswerRequest(conn)
-	//回复代理请求
-	go io.Copy(tarconn, conn)
-	io.Copy(conn, tarconn)
 }
 
 func TCPLink(addr string) error {
@@ -131,7 +162,7 @@ func TCPLink(addr string) error {
 		if (err != nil) {
 			return err
 		}
-		go handleconn(conn)
+		go HandleConn(conn)
 	}
 }
 
