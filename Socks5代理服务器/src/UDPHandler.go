@@ -1,4 +1,4 @@
-package Socks5
+package main
 
 import (
 	"fmt"
@@ -42,22 +42,26 @@ func HandleUDP(addr string, conn net.Conn) {
 	}//访问者与绑定者地址不同，不处理请求
 	var taraddr string
 	var portpos int
-	switch buf[4] {
+	if (buf[2] != 0x00) {
+		fmt.Println("Fragment method not implemented")
+		return
+	}
+	switch buf[3] {
 		case 0x01:	{//IPV4
-			taraddr = fmt.Sprintf("%d.%d.%d.%d", int(buf[5]), int(buf[6]), int(buf[7]), int(buf[8]))
-			portpos = 9
+			addr = fmt.Sprintf("%d.%d.%d.%d", int(buf[4]), int(buf[5]), int(buf[6]), int(buf[7]))
+			portpos = 8
 		}
 		case 0x03: {//DOMAIN NAME
-			len := int(buf[5])
+			len := int(buf[4])
 			for i := 0; i < len; i++ {
-				taraddr += string(buf[i + 6])
+				addr += string(buf[i + 5])
 			}
-			portpos = len + 6
+			portpos = len + 5
 		}
 		case 0x04:{//IPV6
-			taraddr = fmt.Sprintf("%02x:%2x:%02x:%02x:%02x:%02x:%02x:%02x", 
-				int(buf[5]), int(buf[7]), int(buf[9]), int(buf[11]), int(buf[13]), int(buf[15]), int(buf[17]), int(buf[19]))
-			portpos = 21
+			addr = fmt.Sprintf("%02x:%2x:%02x:%02x:%02x:%02x:%02x:%02x", 
+				int(buf[4]), int(buf[6]), int(buf[8]), int(buf[10]), int(buf[12]), int(buf[14]), int(buf[16]), int(buf[18]))
+			portpos = 20
 		}
 	}
 	port := binary.BigEndian.Uint16(buf[portpos:portpos + 2])
@@ -72,4 +76,6 @@ func HandleUDP(addr string, conn net.Conn) {
 		return
 	}
 	clientconn.WriteToUDP(buf[:count], clientaddr)
+	defer clientconn.Close()
+	defer serverconn.Close()
 }
