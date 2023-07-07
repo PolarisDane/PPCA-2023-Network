@@ -4,36 +4,29 @@ import (
 	"fmt"
 	"net"
 	"io"
+	"strings"
 	"time"
 )
-
-func AnswerConnectRequest(conn net.Conn) {
-	var buf[512] byte
-	buf[0] = byte(0x05)
-	buf[1] = byte(0x00)
-	buf[2] = byte(0x00)
-	buf[3] = byte(0x01)
-	buf[4] = byte(0x00)
-	buf[5] = byte(0x00)
-	buf[6] = byte(0x00)
-	buf[7] = byte(0x00)
-	buf[8] = byte(0x00)
-	buf[9] = byte(0x00)
-	conn.Write(buf[:10])
-}
 
 func HandleConnect(tar string, conn net.Conn) {
 	fmt.Println("CONNECT success!!!")
 	tarconn, err := net.DialTimeout("tcp", tar, 3 * time.Second)
 	//与目标连接
 	if (err != nil){
-		fmt.Println(err.Error())
+		if (strings.Contains(err.Error(), "connection refused")) {
+			AnswerRequest(conn, 5)
+		}
+		if (strings.Contains(err.Error(), "lookup")) {
+			AnswerRequest(conn, 4)
+		}else if (strings.Contains(err.Error(), "network is unreachable")) {
+			AnswerRequest(conn, 3)
+		}
 		conn.Close()
 		return
 	}
-	AnswerConnectRequest(conn)
+	AnswerRequest(conn, 0)
 	//回复代理请求
-	go io.Copy(tarconn, conn)
-	io.Copy(conn, tarconn)
+	go io.Copy(conn, tarconn)
+	io.Copy(tarconn, conn)
 	defer tarconn.Close()
 }
