@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"encoding/binary"
+	"sync"
 )
 
 func DistributePort() *net.UDPAddr {
@@ -28,6 +29,27 @@ func AnswerUDPRequest(conn net.Conn, DistributedAddr *net.UDPAddr) {
 	conn.Write(buf[:10])
 }
 
+var ports = make(map[string]bool)
+var portsMutex sync.Mutex
+
+func MarkPortOccupied(addr string) {
+	portsMutex.Lock()
+	defer portsMutex.Unlock()
+	ports[addr] = true
+}
+
+func CheckPortOccupation(addr string) bool {
+	portsMutex.Lock()
+	defer portsMutex.Unlock()
+	return ports[addr]
+}
+
+func ResetPortOccupation(addr string) {
+	portsMutex.Lock()
+	defer portsMutex.Unlock()
+	ports[addr] = false
+}
+
 func HandleUDP(addr string, conn net.Conn) {
 	fmt.Println("UDP success!!!")
 	var buf[512] byte
@@ -46,6 +68,7 @@ func HandleUDP(addr string, conn net.Conn) {
 	AnswerUDPRequest(conn, DistributedAddr)
 	var count int
 	var useraddr *net.UDPAddr
+	var sendport *net.UDPAddr
 	for {
 		count, useraddr, err = clientconn.ReadFromUDP(buf[:])
 		if (count == 1 && buf[0] == 0x04) {
@@ -88,9 +111,29 @@ func HandleUDP(addr string, conn net.Conn) {
 		taraddr = fmt.Sprintf("%s:%d", taraddr, port)
 
 		UDPServerAddr, err := net.ResolveUDPAddr("udp", taraddr)
-		serverconn, err := net.DialUDP("udp", nil, UDPServerAddr)
-		//使用系统随机分配的端口，注意给记录下来保证对于一个客户端使用端口固定
-		fmt.Println(serverconn.LocalAddr())
+		var serverconn *net.UDPConn
+		if (sendport == nil) {
+			for {
+				serverconn, err = net.DialUDP("udp", nil, UDPServerAddr)
+				fmt.Println(serverconn.LocalAddr())
+				sendport, err = net.ResolveUDPAddr("udp", serverconn.LocalAddr().String())
+				//使用系统随机分配的端口，注意给记录下来保证对于一个客户端使用端口固定
+				if (CheckPortOccupation(sendport.String()))	{
+					serverconn.Close()
+					continue
+				}
+				MarkPortOccupied(sendport.String())
+				break
+			}
+		}else {
+			fmt.Print("here!")
+			serverconn, err =net.DialUDP("udp", sendport, UDPServerAddr)
+			for err != nil {
+				fmt.Println(err.Error())
+				serverconn, err =net.DialUDP("udp", sendport, UDPServerAddr)
+			}
+		}
+
 		serverconn.Write(buf[portpos + 2:count])
 		count, _, err = serverconn.ReadFromUDP(buf[:])
 		if (err != nil) {
@@ -98,7 +141,9 @@ func HandleUDP(addr string, conn net.Conn) {
 			return
 		}
 		clientconn.WriteToUDP(buf[:count], clientaddr)
+		serverconn.Close()
 		defer serverconn.Close()
 	}
 	defer clientconn.Close()
+	defer ResetPortOccupation(sendport.String())
 }
