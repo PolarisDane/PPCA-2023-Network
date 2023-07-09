@@ -4,53 +4,40 @@ import (
 	"fmt"
 	"net"
 	"encoding/binary"
+	"strconv"
 )
 
-func DistributePort() *net.UDPAddr {
-	LocalIP := net.ParseIP("127.0.0.1")
-	return &net.UDPAddr{IP: LocalIP, Port: 9000}
-	//分配代理服务器端口，未完成
-}
-
-func AnswerUDPRequest(conn net.Conn, DistributedAddr *net.UDPAddr) {
-	var buf[512] byte
-	//未完成
-	buf[0] = byte(0x05)
-	buf[1] = byte(0x00)
-	buf[2] = byte(0x00)
-	buf[3] = byte(0x01)
-	buf[4] = byte(0x7F)
-	buf[5] = byte(0x00)
-	buf[6] = byte(0x00)
-	buf[7] = byte(0x01)
-	buf[8] = byte(0x23)
-	buf[9] = byte(0x28)//目前指定端口9000
-	conn.Write(buf[:10])
+func AnswerUDPRequest(conn net.Conn, DistributedAddr net.Addr) {
+	host, port, _ := net.SplitHostPort(DistributedAddr.String())
+	DistributedIP := net.ParseIP(host)
+	DistributedPort, _ := strconv.Atoi(port)
+	fmt.Println(DistributedPort)
+	var buf []byte
+	buf = append(buf, byte(0x05))
+	buf = append(buf, byte(0x00))
+	buf = append(buf, byte(0x00))
+	buf = append(buf, byte(0x04))
+	buf = append(buf, DistributedIP...)
+	fmt.Println(binary.BigEndian.AppendUint16(buf, uint16(DistributedPort)))
+	conn.Write(binary.BigEndian.AppendUint16(buf, uint16(DistributedPort)))
 }
 
 func HandleUDP(addr string, conn net.Conn) {
 	fmt.Println("UDP success!!!")
 	var buf[512] byte
-	var empty = "0.0.0.0:0"
-	emptyAddr, err := net.ResolveUDPAddr("udp", empty)
-	//回复代理请求
-	clientaddr, err := net.ResolveUDPAddr("udp", addr)
+	clientaddr, _ := net.ResolveUDPAddr("udp", addr)
+	clientconn, err := net.ListenUDP("udp", nil)
 	if (err != nil) {
 		fmt.Println(err.Error())
 		return
 	}
-	clientconn, err := net.ListenUDP("udp", emptyAddr)
-	var DistributedAddr *net.UDPAddr
-	DistributedAddr, err = net.ResolveUDPAddr("udp", clientconn.LocalAddr().String())
+	//系统随机分配端口
 	var count int
 	var useraddr *net.UDPAddr
 	var sendport *net.UDPAddr
 	var serverconn *net.UDPConn
-	if (err != nil) {
-		fmt.Println(err.Error())
-		return
-	}
-	AnswerUDPRequest(conn, DistributedAddr)
+	AnswerUDPRequest(conn, clientconn.LocalAddr())
+	//回复代理请求
 	go func() {
 		var tmp[512] byte
 		conn.Read(tmp[:])
