@@ -65,6 +65,7 @@ func main() {
 	tarconn.Write(buf[:11])
 	count, _, err = tarconn.ReadFromUDP(buf[:])
 	fmt.Println(string(buf[:count]))
+	for {
 	buf[0] = 0x00
 	buf[1] = 0x00
 	buf[2] = 0x00
@@ -79,8 +80,7 @@ func main() {
 	tarconn.Write(buf[:11])
 	count, _, err = tarconn.ReadFromUDP(buf[:])
 	fmt.Println(string(buf[:count]))
-	buf[0] = 0x04
-	tarconn.Write(buf[:1])
+	}
 	defer conn.Close()
 	defer tarconn.Close()
 }

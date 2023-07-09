@@ -24,7 +24,7 @@ func main() {
 		}
 		sendstr := str + string(buf[:count])
 		_, err = listener.WriteToUDP([]byte(sendstr), addr)
-		fmt.Println(sendstr)
+		fmt.Println(buf[:count])
 		fmt.Println("Request coming from" + addr.String())
 		if (err != nil) {
 			fmt.Println(err.Error())
