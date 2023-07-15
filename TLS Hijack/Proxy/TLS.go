@@ -6,76 +6,116 @@ import (
 	"io"
 	"log"
 	"net"
-	"strings"
+	"net/http"
 )
 
 func main() {
+	ProxyServer := &http.Server{
+		Addr:    "127.0.0.1:8080",
+		Handler: http.HandlerFunc(HandleRequest),
+	}
+	go func() {
+		log.Println(ProxyServer.ListenAndServe())
+	}()
+
+	fmt.Println("Proxy server is running on port 8080, TLS hijack is enabled")
+
+	select {}
+}
+
+func HandleRequest(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodConnect {
+		fmt.Println("CONNECT METHOD REQUIRED")
+		handleTunneling(w, r)
+	} else {
+		fmt.Println("HTTP METHOD REQUIRED")
+		handleHTTP(w, r)
+	}
+}
+
+func handleTunneling(w http.ResponseWriter, r *http.Request) {
+	hijacker, ok := w.(http.Hijacker)
+	if !ok {
+		http.Error(w, "Hijacking not supported", http.StatusInternalServerError)
+		return
+	}
+
+	clientConn, _, err := hijacker.Hijack()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+
 	cert, err := tls.LoadX509KeyPair("localhost.crt", "localhost.key")
 	if err != nil {
 		log.Fatalf("proxy: loadkeys: %s", err)
 	}
 
-	config := tls.Config{Certificates: []tls.Certificate{cert}}
-	config.InsecureSkipVerify = true
-	listener, err := tls.Listen("tcp", "localhost:8080", &config)
+	clientConn.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n"))
+
+	tlsConfig := &tls.Config{
+		Certificates:       []tls.Certificate{cert},
+		InsecureSkipVerify: true,
+	}
+	tlsClientConn := tls.Server(clientConn, tlsConfig)
+
+	destConn, err := tls.Dial("tcp", r.Host, &tls.Config{
+		InsecureSkipVerify: true, // you might want to verify the server certificate in a real-world situation
+	})
 	if err != nil {
-		log.Fatalf("proxy: listen: %s", err)
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
 	}
 
+	connect(destConn, tlsClientConn)
+}
+
+func handleHTTP(w http.ResponseWriter, r *http.Request) {
+	resp, err := http.DefaultTransport.RoundTrip(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	defer resp.Body.Close()
+	copyHeader(w.Header(), resp.Header)
+	w.WriteHeader(resp.StatusCode)
+	io.Copy(w, resp.Body)
+}
+
+func Forward(tarConn, srcConn net.Conn) {
+	buf := make([]byte, 32*1024)
 	for {
-		conn, err := listener.Accept()
+		rcount, err := srcConn.Read(buf[:32*1024])
 		if err != nil {
-			log.Printf("proxy: accept: %s", err)
-			break
+			fmt.Println(err.Error())
+			return
 		}
-		go handleClient(conn)
+		if rcount > 0 {
+			wcount, err := tarConn.Write(buf[:rcount])
+			fmt.Print(string(buf[:rcount]))
+			if err != nil {
+				fmt.Println(err.Error())
+				return
+			}
+			if wcount < rcount {
+				fmt.Println("End of forward")
+				return
+			}
+		}
 	}
 }
 
-func handleClient(clientConn net.Conn) {
+func connect(destConn, clientConn net.Conn) {
+	defer destConn.Close()
 	defer clientConn.Close()
+	go Forward(clientConn, destConn)
+	io.Copy(destConn, clientConn)
+}
 
-	// serverConn, err := tls.Dial("tcp", "www.baidu.com:443", nil)
-	// if err != nil {
-	// 	log.Printf("proxy: dial: %s", err)
-	// 	return
-	// }
-	// defer serverConn.Close()
-
-	var buf [512]byte
-
-	n, err := clientConn.Read(buf[:])
-	if err != nil {
-		fmt.Println(err.Error())
-		return
+func copyHeader(dst, src http.Header) {
+	for k, vv := range src {
+		for _, v := range vv {
+			dst.Add(k, v)
+		}
 	}
-
-	var str = string(buf[:n])
-
-	fmt.Println(string(buf[:n]))
-
-	var splitstr = strings.Split(str, " ")
-
-	var addr = splitstr[1]
-
-	fmt.Println(addr)
-
-	// config := &tls.Config{
-	// 	MinVersion: tls.VersionTLS11,
-	// 	MaxVersion: tls.VersionTLS13,
-	// }
-
-	serverConn, err := net.Dial("tcp", addr)
-	//这里不能使用tls.Dial，因为tls.Dial返回的是对应tls的连接
-
-	if err != nil {
-		log.Printf("proxy: dial: %s", err)
-		return
-	}
-	defer serverConn.Close()
-	clientConn.Write(([]byte)("HTTP/1.1 200 xyzzy\r\nContent-Length: 0\r\n\r\n"))
-
-	go io.Copy(clientConn, serverConn)
-	io.Copy(serverConn, clientConn)
-
 }
