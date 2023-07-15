@@ -10,16 +10,18 @@ import (
 )
 
 func Is_HTTP_Request(buf []byte, count int) int {
-	if count > 4 {
-		count = 4
+	if count > 16 {
+		count = 16
 	}
 	str := string(buf[:count])
 	if strings.Contains(str, "GET") {
 		return 0
 	} else if strings.Contains(str, "POST") {
 		return 1
-	} else {
+	} else if strings.Contains(str, "CONNECT") {
 		return 2
+	} else {
+		return 3
 	}
 }
 
@@ -38,12 +40,15 @@ func Forward(tarConn, srcConn net.Conn) {
 				fmt.Println("HTTP GET")
 			} else if HTTPtag == 1 {
 				fmt.Println("HTTP POST")
+			} else if HTTPtag == 3 {
+				fmt.Println("HTTP CONNECT")
 			} else {
 				fmt.Println("NOT HTTP")
 			}
 		}
 		if rcount > 0 {
 			wcount, err := tarConn.Write(buf[:rcount])
+			fmt.Println(string(buf[:rcount]))
 			if err != nil {
 				fmt.Println(err.Error())
 				return
@@ -104,7 +109,7 @@ func HandleConnect(tar string, clientConn net.Conn) {
 	//回复代理请求
 	// var buf [512]byte
 	// conn.Read(buf[:])
-	go io.Copy(clientConn, tarconn)
+	go Forward(clientConn, tarconn)
 	Forward(tarconn, clientConn)
 	// go io.Copy(conn, tarconn)
 	// io.Copy(tarconn, conn)

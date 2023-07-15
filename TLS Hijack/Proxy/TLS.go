@@ -10,12 +10,21 @@ import (
 )
 
 func main() {
+	cert, err := tls.LoadX509KeyPair("localhost.crt", "localhost.key")
+	if err != nil {
+		log.Fatalf("proxy: loadkeys: %s", err)
+	}
+	tlsConfig := &tls.Config{
+		Certificates:       []tls.Certificate{cert},
+		InsecureSkipVerify: true,
+	}
 	ProxyServer := &http.Server{
-		Addr:    "127.0.0.1:8080",
-		Handler: http.HandlerFunc(HandleRequest),
+		Addr:      "127.0.0.1:8080",
+		Handler:   http.HandlerFunc(HandleRequest),
+		TLSConfig: tlsConfig,
 	}
 	go func() {
-		log.Println(ProxyServer.ListenAndServe())
+		log.Println(ProxyServer.ListenAndServeTLS("localhost.crt", "localhost.key"))
 	}()
 
 	fmt.Println("Proxy server is running on port 8080, TLS hijack is enabled")

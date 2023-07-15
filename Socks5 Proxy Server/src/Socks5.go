@@ -227,6 +227,7 @@ func TCPLink(addr string) error {
 			go HandleConn(conn)
 		}
 	}
+	return nil
 }
 
 func main() {
