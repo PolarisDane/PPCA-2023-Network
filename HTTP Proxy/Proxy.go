@@ -10,7 +10,7 @@ import (
 func main() {
 	// 创建一个HTTP代理服务器
 	proxy := &http.Server{
-		Addr:    ":8080", // 设置代理服务器的监听地址和端口
+		Addr:    ":8080",                         // 设置代理服务器的监听地址和端口
 		Handler: http.HandlerFunc(HandleRequest), // 设置请求处理函数
 	}
 
@@ -81,7 +81,7 @@ func HandleRequest(Writer http.ResponseWriter, Request *http.Request) {
 	fmt.Println(Request.ContentLength)
 
 	fmt.Println(Request.Host)
-	
+
 	fmt.Println()
 
 	// 创建一个新的请求对象，并复制原始请求的其他信息
@@ -99,7 +99,7 @@ func HandleRequest(Writer http.ResponseWriter, Request *http.Request) {
 
 	err = GetResponse(Writer, clientReq)
 
-	if (err != nil) {
+	if err != nil {
 		fmt.Println(err)
 		return
 	}
