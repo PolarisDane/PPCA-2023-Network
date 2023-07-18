@@ -1,16 +1,14 @@
 package main
 
 import (
-	"crypto/tls"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net"
 )
 
-var TLS_Hijack = false
+var TLS_Hijack = true
 
 func NegotiateAuthentication(conn net.Conn) (err error) {
 	var buf [512]byte
@@ -180,11 +178,7 @@ func HandleConn(conn net.Conn) {
 	}
 	fmt.Println("Accepted")
 	if CMD == 1 {
-		if TLS_Hijack {
-			HandleTLSConnect(tar, conn)
-		} else {
-			HandleConnect(tar, conn)
-		}
+		HandleConnect(tar, conn)
 	} else if CMD == 3 {
 		HandleUDP(tar, conn)
 	}
@@ -192,42 +186,20 @@ func HandleConn(conn net.Conn) {
 
 func TCPLink(addr string) error {
 	fmt.Println("Listening here")
-	if TLS_Hijack {
-		cert, err := tls.LoadX509KeyPair("localhost.crt", "localhost.key")
+	//非TLS劫持，不能处理HTTPS协议
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		return err
+	}
+	for {
+		conn, err := listener.Accept()
+		fmt.Println("Proxy user is found")
 		if err != nil {
-			log.Fatalf("proxy: loadkeys: %s", err)
-		}
-		config := tls.Config{Certificates: []tls.Certificate{cert}}
-		config.InsecureSkipVerify = true
-		listener, err := tls.Listen("tcp", "localhost:8080", &config)
-		if err != nil {
-			log.Fatalf("proxy: listen: %s", err)
-		}
-		for {
-			conn, err := listener.Accept()
-			if err != nil {
-				log.Printf("proxy: accept: %s", err)
-				break
-			}
-			go HandleConn(conn)
-		}
-	} else {
-		//非TLS劫持，不能处理HTTPS协议
-		listener, err := net.Listen("tcp", addr)
-		if err != nil {
+			fmt.Println(err.Error())
 			return err
 		}
-		for {
-			conn, err := listener.Accept()
-			fmt.Println("Proxy user is found")
-			if err != nil {
-				fmt.Println(err.Error())
-				return err
-			}
-			go HandleConn(conn)
-		}
+		go HandleConn(conn)
 	}
-	return nil
 }
 
 func main() {

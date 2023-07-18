@@ -1,9 +1,10 @@
 package main
 
 import (
+	"bufio"
+	"crypto/tls"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"strings"
 	"time"
@@ -40,7 +41,7 @@ func Forward(tarConn, srcConn net.Conn) {
 				fmt.Println("HTTP GET")
 			} else if HTTPtag == 1 {
 				fmt.Println("HTTP POST")
-			} else if HTTPtag == 3 {
+			} else if HTTPtag == 2 {
 				fmt.Println("HTTP CONNECT")
 			} else {
 				fmt.Println("NOT HTTP")
@@ -62,30 +63,23 @@ func Forward(tarConn, srcConn net.Conn) {
 }
 
 func HandleTLSConnect(tar string, clientConn net.Conn) {
-	defer clientConn.Close()
+	// defer clientConn.Close()
+
+	// serverConn, err := tls.Dial("tcp", tar, &tls.Config{
+	// 	InsecureSkipVerify: true,
+	// })
 	// if err != nil {
 	// 	log.Printf("proxy: dial: %s", err)
 	// 	return
 	// }
+
+	// cert =
+
 	// defer serverConn.Close()
+	// clientConn.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n"))
 
-	// config := &tls.Config{
-	// 	MinVersion: tls.VersionTLS11,
-	// 	MaxVersion: tls.VersionTLS13,
-	// }
-
-	serverConn, err := net.Dial("tcp", tar)
-	//这里不能使用tls.Dial，因为tls.Dial返回的是对应tls的连接
-
-	if err != nil {
-		log.Printf("proxy: dial: %s", err)
-		return
-	}
-	defer serverConn.Close()
-	clientConn.Write(([]byte)("HTTP/1.1 200 xyzzy\r\nContent-Length: 0\r\n\r\n"))
-
-	go io.Copy(clientConn, serverConn)
-	io.Copy(serverConn, clientConn)
+	// go Forward(clientConn, serverConn)
+	// io.Copy(serverConn, clientConn)
 }
 
 func HandleConnect(tar string, clientConn net.Conn) {
@@ -107,10 +101,85 @@ func HandleConnect(tar string, clientConn net.Conn) {
 	}
 	AnswerRequest(clientConn, 0)
 	//回复代理请求
-	// var buf [512]byte
-	// conn.Read(buf[:])
-	go Forward(clientConn, tarconn)
-	Forward(tarconn, clientConn)
-	// go io.Copy(conn, tarconn)
-	// io.Copy(tarconn, conn)
+	reader := bufio.NewReader(clientConn)
+	line, err := reader.Peek(8)
+	fmt.Println("Hello!!!")
+	if err != nil {
+		fmt.Println("Internal server error" + err.Error())
+		return
+	}
+	if (line[0] == 0x16) && (line[1] == 0x03) && (line[2] == 0x01) && TLS_Hijack {
+		fmt.Println("Bye!!!")
+		tarconn.Close()
+		Listener, err := net.Listen("tcp", "127.0.0.1:9000")
+		if err != nil {
+			fmt.Println(err.Error())
+			return
+		}
+		fmt.Println("Listening for TLS handshake")
+		go func() {
+			handshakeConn, err := Listener.Accept()
+			if err != nil {
+				fmt.Println(err.Error())
+				return
+			}
+			cert, err := generateCert(tar)
+			if err != nil {
+				fmt.Println(err.Error())
+				return
+			}
+			tlsConfig := &tls.Config{
+				Certificates:       []tls.Certificate{cert},
+				InsecureSkipVerify: true,
+			}
+			tlsConn := tls.Server(handshakeConn, tlsConfig)
+			err = tlsConn.Handshake()
+			if err != nil {
+				fmt.Println(err.Error())
+				return
+			}
+			fmt.Println("Received TLS handshake")
+
+			tlsConfig = &tls.Config{
+				InsecureSkipVerify: true,
+			}
+			serverConn, err := tls.Dial("tcp", tar, tlsConfig)
+			if err != nil {
+				fmt.Println(err.Error())
+				return
+			}
+			defer serverConn.Close()
+			go Forward(tlsConn, serverConn)
+			io.Copy(serverConn, tlsConn)
+		}()
+		// cert, err := generateCert(tar)
+		// if err != nil {
+		// 	fmt.Println(err.Error())
+		// 	return
+		// }
+		// tlsConfig := &tls.Config{
+		// 	Certificates:       []tls.Certificate{cert},
+		// 	InsecureSkipVerify: true,
+		// }
+		// tlsClientConn := tls.Server(clientConn, tlsConfig)
+		// defer tlsClientConn.Close()
+		proxyConn, err := net.Dial("tcp", "127.0.0.1:9000")
+		if err != nil {
+			fmt.Println(err.Error())
+			return
+		}
+		defer proxyConn.Close()
+		var buf [32 * 1024]byte
+		go Forward(clientConn, proxyConn)
+		n, err := reader.Read(buf[:])
+		if err != nil {
+			fmt.Println(err.Error())
+			return
+		}
+		proxyConn.Write(buf[:n])
+		io.Copy(proxyConn, clientConn)
+	} else {
+		go io.Copy(clientConn, tarconn)
+		Forward(tarconn, clientConn)
+	}
 }
