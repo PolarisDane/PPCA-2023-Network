@@ -99,7 +99,7 @@ func HandleConnect(tar string, clientConn net.Conn) {
 					return
 				}
 				defer serverConn.Close()
-				go ModifyForward(tlsConn, serverConn)
+				go ForwardToClient(tlsConn, serverConn)
 				io.Copy(serverConn, tlsConn)
 			}()
 			proxyConn, err := net.DialTimeout("tcp", handshakeAddr, 3*time.Second)
@@ -121,7 +121,7 @@ func HandleConnect(tar string, clientConn net.Conn) {
 	} else {
 		defer clientConn.Close()
 		defer tarConn.Close()
-		go ModifyForward(clientConn, tarConn)
+		go ForwardToClient(clientConn, tarConn)
 		io.Copy(tarConn, clientConn)
 	}
 }
